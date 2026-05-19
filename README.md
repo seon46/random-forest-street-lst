@@ -71,21 +71,25 @@
 
 ## 🚀 動作環境
 
-### 必要なもの
-- Python 3.10+
-- Jupyter Notebook
-- 主要パッケージ: `scikit-learn`, `numpy`, `pandas`, `rasterio`, `geopandas`, `matplotlib`
+### 推奨: Google Colab で実行
 
-### セットアップ
+本研究のNotebookは **Google Colab** での実行を前提に開発されています。
+Colabではほとんどの依存パッケージがプリインストールされており、GPUも利用可能です。
 
-```bash
-pip install -r code/requirements.txt
-```
+1. `code/dataset.ipynb` と `code/model.ipynb` を Google Drive にアップロード
+2. Colab で開いて、上から順にセルを実行
+3. 一部セルで `!pip install` により追加パッケージをインストール
+4. Google Earth Engine の認証が必要(初回のみブラウザで承認)
+
+### 主要パッケージ
+
+`code/requirements.txt` に使用パッケージを記載しています。
+ただし `google.colab` モジュールを使用しているため、**ローカル環境(Jupyter等)では一部セルが動作しません**。
 
 ### 外部ツール
 - **ImageJ + IRImage プラグイン**: サーマル画像処理用
 - **ShadeMap**: 3D日影分布の取得
-
+- **Google Earth Engine**: 衛星データ取得(要アカウント登録)
 ### 使用データ
 リポジトリのデータ容量制約のため、生データ(衛星画像・サーマル画像など)はリポジトリに含めていません。詳細は卒業論文本文をご覧ください。
 
