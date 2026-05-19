@@ -1,0 +1,31 @@
+# Python dependencies for street-scale LST estimation
+# Generated from imports in dataset.ipynb and model.ipynb
+
+# Core scientific computing
+numpy
+pandas
+scipy
+scikit-learn
+statsmodels
+
+# Geospatial / Remote sensing
+rasterio
+pyproj
+cartopy
+tifffile
+earthengine-api       # ee
+geemap
+
+# Visualization
+matplotlib
+seaborn
+Pillow                # PIL
+
+# Deep learning (optional - used in some experiments)
+torch
+transformers
+
+# Notebook / Utilities
+ipywidgets
+tqdm
+requests

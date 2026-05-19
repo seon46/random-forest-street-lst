@@ -1,0 +1,866 @@
+\documentclass[12pt,epsf]{jreport}
+\usepackage[dvipdfmx]{graphicx} % 図の貼り付け用
+\usepackage{ics} % ICS卒論・修論スタイルファイル
+\usepackage{makeidx} %索引生成用パッケージ
+\usepackage{tabularx}% 横幅指定で表を作成
+\usepackage{latexsym} % 数学記号用パッケージ
+\usepackage{mathtools}
+\usepackage{float}
+\usepackage{booktabs}
+
+\newtheorem{definition}{定義}[chapter]
+\newtheorem{algorithm}{アルゴリズム}[chapter]
+
+%% end of local definitions
+
+\def\epsfsize#1#2{\ifnum#1>\hsize\hsize\else#1\fi}
+
+\begin{document}
+
+\papercode{ICS-026-22TI040}
+\title{Random Forestを用いた街路スケールの地表面温度推定手法の提案}
+\affiliation{工学部情報工学科}
+%\affiliation{理工学研究科 情報システム工学専攻}
+%\affiliation{理工学研究科 数理電子情報系専攻\\情報システム工学コース}
+\author{氏 名 遠藤 瀬音}
+\date{令和8年2月10日提出}
+\supervisor{堤田 成政 准教授}
+\labname{堤田研究室}
+\studentID{22TI040}
+\maketitle
+
+\setcounter{page}{1}
+\chapter*{概要}
+ \pagenumbering{roman} % 消さない
+ \addcontentsline{toc}{chapter}{概要} %消さない
+
+%概要は，簡潔にまとめること．また，論文の構成も概要の最後に示すこと．
+
+
+急速な都市化は都市ヒートアイランド(UHI)現象を悪化させ，都市居住者の熱ストレスや熱中症などの健康リスクを増大させている．
+衛星リモートセンシングは広域的な地表面温度(LST)のモニタリングを可能とするが，現行のセンサーは空間解像度と再帰周期の間にトレードオフの関係を抱えており，街路空間の微細な熱的不均質性をとらえることができていない．
+その結果，複雑な都市の日影の影響により，歩行者の熱曝露評価のための1~mスケールのLSTを正確に推定することは依然として課題となっている．
+本研究では，衛星データと3D日影モデリングからランダムフォレストによりダウンスケーリングを実現することにより，1~m解像度で街路レベルのLSTを推定した．
+提案手法では，建物と植生の両方の日影を考慮した新たな説明変数Shade NDVIを導入した．
+その結果，構築したモデルは実測熱画像に対して決定係数0.72を達成し，日影分布を考慮しないモデル結果を大幅に上回った．
+日向と日影の路面間に見られる急激な温度勾配を再現するには，日影の冷却効果を考慮することが極めて重要であることが分かった．
+この結果は，衛星データを街路レベルにダウンスケーリングするためには，精密な日影の動態を組み込むことが不可欠であることを示唆している．
+本提案手法は，より正確な歩行者の熱曝露評価，および高密度化する都市における熱リスクを軽減するための都市計画策定への貢献が期待される．
+
+
+
+%%% 謝辞 %%%
+
+\chapter*{謝辞}
+\addcontentsline{toc}{chapter}{謝辞} % 消さない
+
+
+研究ならびに生活面においてご指導を賜りました堤田成政准教授に深く感謝致
+します．
+
+また，先輩としていつもよきアドバイスをくださいました，
+田中氏，村上氏をはじめとする研究室の皆様，そして同期学生の皆様，並びに私
+を暖かく見守って頂いた両親はじめとする周囲のすべての皆様に深く感謝致しま
+す．
+
+\tableofcontents % 目次生成
+\listoffigures % 図目次生成
+\addcontentsline{toc}{chapter}{図目次}
+\listoftables % 表目次生成
+\addcontentsline{toc}{chapter}{表目次}
+
+
+\chapter{はじめに}
+\pagenumbering{arabic} %消さないこと
+\setcounter{page}{1}   %消さないこと
+
+ \section{背景}
+ 近年急速な都市化に伴い，地表面がコンクリートやアスファルトなどの人工被覆に変化したことにより，都市内における植生による冷却効果の減少と日射エネルギーの熱蓄積が増大している\cite{taha1997urban}．
+ そのため，都市域の気温が郊外に比べて顕著に高くなる都市ヒートアイランド現象(Urban Heat Island:UHI)が深刻化している\cite{mikami2005urban}．
+ UHI現象による人体の熱曝露は，人間の健康に対して大きな悪影響を与える．
+ 熱ストレスは，心血管疾患，糖尿病，精神的健康，喘息などの基礎疾患を悪化させ，感染症の感染リスクを高めることがある\cite{who2018heat}．
+ 日本では，熱中症による救急搬送者数や死亡者数が年々増加しており，都市の暑熱環境対策は公衆衛生上の喫緊の課題となっている\cite{env2022heat}．
+
+ 従来の温熱環境が人間に及ぼす影響の研究では，指標として気温が使用されてきた\cite{gonzalez1974experimental, ayoade1978spatial}．
+ しかし，屋外空間における温熱快適性は，気温だけでなく周囲からの放射熱にも依存する\cite{matzarakis1999applications}．
+ 特に夏季の晴天日においては，直射日射や地表面からの熱放射が強まり，人体への熱ストレスを増大させる要因となる\cite{matzarakis1999applications}．
+ したがって歩行者が利用する街路空間の熱曝露評価には，地表面温度(Land Surface Temperature，LST)の微細な空間分布を把握することが不可欠であると考えられる．
+
+ 広域かつ継続的なLSTのモニタリングにおいて，都市全域の熱環境を瞬時かつ均質にとらえることができる衛星リモートセンシングは，非常に有効な手段である\cite{voogt2003thermal}．
+ リモートセンシングでは衛星に搭載されている熱赤外センサーを利用して，LSTを観測する.
+ しかし，現行の衛星観測によるLSTモニタリングは空間解像度と再帰周期はトレードオフの関係を抱えている．
+ 例えば，NASAのMODIS衛星に搭載されている熱赤外センサーは，高い再帰周期(概ね1日から数日)を有する一方で，空間解像度は1km程度と非常に粗い\cite{wan2008new}．
+ 一方，NASAとUSGSが共同運用しているLandsat8/9の熱赤外センサーは比較的詳細な空間解像度(約100~m)を有するが，再帰周期は約16日と大きい．
+ また，リモートセンシングは天候に左右され，曇天時にはうまく観測ができない．
+ 曇天の影響を含めると都市の動的な熱環境をとらえる機会は極めて限定的である\cite{reuter2015thermal}．
+ また，いずれにおいても，街路空間のLSTを把握するには空間解像度が不十分である．
+ 一つのピクセルサイズ内に局所的なホットスポット・クールスポットが存在する場合，それらを表現することが難しい\cite{weng2009thermal}．
+ その結果，街路空間のLSTを衛星観測により正確に把握することは，現時点において困難である．
+
+ この時空間解像度の制約を克服するため，様々な先行研究で，低解像度のLSTデータと高解像度の補助データを融合させ，LSTの空間詳細度を向上させるダウンスケーリング手法が提案されてきた．\cite{mao2021resolution}
+ その中でも代表的なアプローチはカーネル法である．
+ カーネル法は，LST分布画像よりも解像度の高い可視・近赤外画像から得られる物理量(NDVIや反射率など)を回帰カーネルとして用い，LSTとの統計的な関係性を構築することで高解像度化を図るものである\cite{mao2021resolution}．
+ 特にKustasらによるDisTrad法\cite{kustas2003estimating}やAgamらによるTsHARP法\cite{agam2007vegetation}は，LSTと正規化植生指数(NDVI)の間にみられる相関関係を利用した．
+ しかし，これらの手法は植生量と温度の相関を前提としているため，都市部における建物の日影のような複雑な温度変化をとらえきれない．
+ また，既存研究ではESAが運用する地球観測衛星であるSentinel-2は高解像度の補助データとして用いられるが，その空間解像度は10~mであり，街路空間でのLSTの把握には不十分である\cite{xu2021spatial}．
+ 
+
+
+ \section{目的}
+ 本研究は，1~m空間解像度でのLSTの推定を実現するための手法を開発することを目的とする．
+ LandsatやSentinel-2といった衛星観測データと，3Dモデルから算出した日影分布に加え，サーマルカメラによる現地観測データをランダムフォレスト(Random Forest, RF)に適用することで，LST推定モデルを構築する．
+ これまでの研究よりも高解像度かつ日影情報を取り入れた新たなアプローチを提案する.
+ 
+
+ \section{本論文の構成}
+ 論文の構成は以下の通りである．
+ 第2章では，研究概要と本研究で使用するデータについて述べる．
+ 第3章では，本研究で提案する手法について述べる．
+ 第4章では，本研究で行った実験とその結果について述べる．
+ 第5章では，本研究の考察を述べる．
+ 第6章では，本研究のまとめと今後の課題について述べる．
+
+
+
+\chapter{研究概要とデータ}
+ \section{研究概要}
+ 本研究の概要図を図\ref{fig:flow1}に示す．
+ 本研究では，使用する変数の異なる三種類のモデルを構築した．
+学習に使用するデータセットを8:2で分割し，それぞれ学習用とテスト用とした．
+学習用データを用いてRandom Forestで学習し，ダウンスケーリングモデルを構築した．
+構築した三種類のモデルについてそれぞれ評価を行った．
+精度が優れていたモデルを用いて，研究対象地域内に一定間隔で置かれた地点の地表面温度推定を行った．
+
+ \begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\linewidth]{flowchart.png}
+    \caption{研究の概要図}
+    \label{fig:flow1}
+\end{figure}
+
+ 
+ \section{研究対象地域}
+ 本研究では，都市化が進行しており，かつヒートアイランド現象が顕著である，埼玉県さいたま市埼大通りを研究対象地域とした．(図\ref{fig:tiki1})
+ 範囲は埼玉大学西端から北浦和駅西口付近までである．
+ この地域には中高層の建物，戸建て住宅，街路樹などの植生が混在しており，空間解像度100~mのLandsat LSTのみでは街路空間の熱曝露を評価できないため，本研究のダウンスケーリング手法の検証を行う上で適したフィールドであるといえる．
+
+ \begin{figure}[H]
+    \centering
+        \includegraphics[width=\linewidth]{saitama_overview_narrow.png}
+        \caption{研究対象地域}
+        \label{fig:tiki1}
+ \end{figure}
+
+
+
+
+ \section{データ}
+ \subsection{現地実測値データ}
+ \label{subsec:pointLST}
+ 衛星データより細かい空間スケールでのLST推定モデルを構築するため，対象地域で地表面温度の実測値を取得した．(図\ref{fig:tiki2})
+ 本研究では，FLIR製の手持ちサーマルカメラを使って地表から約1mの高さで熱画像をとり，その画像の平均温度をその地点での1~m解像度ピクセルLSTデータとして考える．
+ この手法で撮影された熱画像はおよそ1m四方の範囲の地表面を映している．(図\ref{fig:camera},\ref{fig:cameramoto})  
+ 使用したサーマルカメラは，CAT S62 PROに標準搭載されたFLIR製のLepton 3.5である．(図\ref{fig:FLIRcamera})
+ 平均温度は，画像内のピクセルで上位・下位それぞれ10\%を除外したものから算出した．
+ 現地観測は，画像内に日陰と日向が混在せず，撮影時刻がLandsat通過時刻である午前10時の前後約一時間以内であり，撮影日がLandsat通過日である，という条件において実施した．
+ 画像の撮影日は以下のとおりである．(表\ref{tab:data_list})
+
+  \begin{figure}[H]
+    \centering
+        \includegraphics[width=\linewidth]{observation_detailed_final.png}
+        \caption{研究対象地域と現地実測値撮影地点}
+        \label{fig:tiki2}
+ \end{figure}
+
+\begin{figure}[H]
+    \centering
+        \includegraphics[width=0.65\linewidth, angle=180]{FLIR_camera.png}
+        \caption{使用したサーマルカメラ}
+        \label{fig:FLIRcamera}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    %--- 左側の画像 ---
+    \begin{minipage}[t]{0.48\linewidth} % 幅を全体の48%に設定
+        \centering
+        \includegraphics[width=\linewidth]{flir_20250926T094341.png}
+        \caption{熱画像}
+        \label{fig:camera} % ラベルをユニークなものに変更
+    \end{minipage}
+    \hfill % 左右の間にスペースを自動で空ける
+    %--- 右側の画像 ---
+    \begin{minipage}[t]{0.48\linewidth} % 幅を全体の48%に設定
+        \centering
+        \includegraphics[width=\linewidth]{224732.png}
+        \caption{熱画像に対応するRGB画像} % キャプションは簡潔に
+        \label{fig:cameramoto} % ラベルをユニークなものに変更
+        %--- ここに注釈を追加 ---
+        \vspace{0.5em} % キャプションとの間隔を少し空ける
+        {\footnotesize ※画像下部が白くなっているが，LSTの算出値には影響ない．}
+    \end{minipage}
+\end{figure}
+
+ \begin{table}[H]
+  \centering
+  \caption{撮影した熱画像}
+  \label{tab:data_list}
+  \begin{tabular}{|l|l|}
+    \hline
+    \textbf{撮影日時} & \textbf{画像枚数} \\
+    \hline
+    2025/09/26&75 \\
+    \hline
+    2025/10/12&80 \\
+    \hline
+    2025/10/26&29 \\
+    \hline
+    全期間&184 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+撮影時は，スマートフォンにより位置情報を取得しながら，移動軌跡を記録した．
+記録された位置情報は，GPS誤差が確認されたため，手動で補正を行った．
+
+ \subsection{Landsatデータ}
+ \label{subsec:Ls_LST}
+ 中解像度のLSTとして，アメリカ地質調査所(USGS)が提供するLandsat8/9に搭載されたTIRSのデータを使用した\cite{RESTEC_Landsat8}\cite{RESTEC_Landsat9}．
+ TIRSのバンド10は，観測波長10.60-11.19\mu mであり，本来の空間解像度は100mである．本研究では30mにリサンプリングされたものを利用する．
+ Landsatは午前10時頃に上空を通過し観測を行うため，取得できる画像は午前10時頃のものである．
+ 取得した画像の観測日は実測値の撮影日と同期させた．
+
+
+ \subsection{Sentinel-2データ}
+ \label{subsec:Sen_band}
+ 高解像度の補助データとして，欧州宇宙機関(ESA)が運用するSentinel-2に搭載された多波長光学センサMSIのデータを利用した．
+ データは'Harmonized Sentinel-2 MSI: MultiSpectral Instrument, Level-2A (SR)'から取得した\cite{sentinel2_harmonized_gee,gorelick2017google}．
+ 本研究では地表面の物理特性(植生，建物，水分量など)を高解像度でとらえるために利用する(表\ref{tab:s2_bands})．
+ 観測時期はLandsatデータの観測日とできるだけ近いデータを採用した．
+
+\begin{table}[H]
+    \centering
+    \caption{本研究で使用したSentinel-2のバンド情報}
+    \label{tab:s2_bands}
+    \begin{tabular}{llrr} 
+    \hline
+    センサ                          & バンド名                & 中心波長    & 解像度    \\ 
+    \hline
+    \multirow{Sentinel-2} & B2(Blue)            & 493 nm  & 10 m  \\
+                                & B3(Green)           & 560 nm  & 10 m  \\
+                                & B4(Red)             & 665 nm  & 10 m  \\
+                                & B5(VNIR)            & 704 nm  & 20 m  \\
+                                & B6(VNIR)            & 740 nm  & 20 m  \\
+                                & B7(VNIR)            & 783 nm  & 20 m  \\
+                                & B8(NIR)             & 833 nm  & 10 m  \\
+                                & B8A(NIR)            & 865 nm  & 20 m  \\
+                                & B11(SWIR)           & 1610 nm & 20 m  \\
+                                & B12(SWIR)           & 2190 nm & 20 m  \\
+    \hline
+    \end{tabular}
+\end{table}
+
+ダウンスケーリングに用いる補助データには，目的変数と同日時のデータを用いることが理想的である．
+しかし，Sentinel-2は雲や大気の影響を受けやすく，現地撮影日と完全に一致した日の雲のないSentinel-2画像を取得することは極めて困難である．
+そこで本研究では，雲マスクをかけ，その中でもできるだけ現地撮影日にできるだけ近い日のSentinel-2画像を取得した．
+雲マスクはSCL(Scene Classification Layer)バンドを利用して作成した．
+SCLバンドはデータセット'Harmonized Sentinel-2 MSI: MultiSpectral Instrument, Level-2A (SR)'内に含まれたものである．\ref{tab:scl_classes}
+SCLバンドは，ほかのバンドの値を分析することでピクセルの種類を判定したものである．
+本研究では，SCLバンドが8,9であるものを除外する雲マスクを使用した．
+
+\begin{table}[H]
+    \centering
+    \caption{SCLのクラス定義}
+    \label{tab:scl_classes}
+    \begin{tabular}{cl}
+        \toprule
+        \textbf{値} & \textbf{クラス名} \\
+        \midrule
+        0 & No Data (データなし) \\
+        1 & Saturated / Defective (飽和・欠損) \\
+        2 & Dark Area Pixels (暗い領域) \\
+        3 & Cloud Shadows (雲の影) \\
+        4 & Vegetation (植生) \\
+        5 & Not Vegetated (非植生) \\
+        6 & Water (水域) \\
+        7 & Unclassified (未分類) \\
+        8 & Cloud Medium Probability (中確率の雲) \\
+        9 & Cloud High Probability (高確率の雲) \\
+        10 & Thin Cirrus (巻雲・うす雲) \\
+        11 & Snow or Ice (雪・氷) \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+取得したSentinel-2画像の日付情報を表\ref{tab:Sentinel-2_list}に示す．
+
+\begin{table}[H]
+  \centering
+  \caption{現地観測日と対応するSentinel-2撮影日}
+  \label{tab:Sentinel-2_list}
+  \begin{tabular}{|l|l|}  
+    \hline
+    \textbf{現地熱画像撮影日} & \textbf{Sentinel-2撮影日}  \\
+    \hline
+    2025/09/26&2025/09/08 \\
+    \hline
+    2025/10/12&2025/09/08 \\
+    \hline
+    2025/10/26&2025/11/07 \\
+    \hline
+  \end{tabular}
+\end{table}
+
+
+
+\subsection{ShadeMapデータ}
+\label{subsec:Shade}
+建物による日影を考慮するための補助データとして，Webベースの日影シミュレーションツールであるShadeMapを使用した\cite{ShadeMap_Help}．
+ShadeMapはMapboxが提供する数値標高モデル(DEM)および，OpenStreetMap(OSM)などの建物データを統合し，レンダリングによって日影を算出する (図\ref{fig:ShadeMap})．
+シミュレーションのアルゴリズムは，地図上の各地点から太陽位置へ向かうパスをトレースし，地形や建物などのオブジェクトとの交差判定を行うことで，日向と日影を判断している．
+データについては，対象となる移動経路の座標データをShadeMapにインポートし，それに対応する日影分布をベクタデータで取得した．
+取得したデータには，特定日時の日影の有無(0:日影，1:日向)が含まれている．
+
+\begin{figure}[H]
+    \centering
+        \includegraphics[width=\linewidth]{ShadeMap.png}
+        \caption{2025年9月26日午前10時頃の日影分布．出典：ShadeMap (https://shademap.app/）}
+        \label{fig:ShadeMap}
+\end{figure}
+
+\subsection{GoogleStreetViewデータ}
+\label{subsec:SVF}
+GoogleStreetView(GSV)画像を用いた天空率(SVF)の算出を行った．
+SVFは，地上から見た時の半球を空が占める割合である．
+0(完全に遮蔽)から1の値をとり，日射の受容量と相関を持つ．
+また，SVFはLSTとも正の相関を持ち，高解像度ダウンスケーリングにおいて有用な変数である\cite{scarano2017assessing}.
+GSV画像の取得には，GoogleMapsPlatformのStreetViewStaticAPIを使用した．
+実測値撮影ルート上の各座標地点において，以下のパラメータを設定し，Pythonのスクリプトを用いて画像を自動収集した．
+\begin{itemize}
+    \item \textbf{画像サイズ}:600×400pixel
+    \item \textbf{視野角(FOV)}:90°
+    \item \textbf{カメラ仰角(Pitch)}:0°
+    \item \textbf{方位角(Heading)}:0°,90°,180°,270°
+\end{itemize}
+各地点につき，上記4方向の画像を網羅的に取得することで，水平方向360°の視角情報を確保した．
+取得した画像に対し，Pythonの深層学習ライブラリPyTorch及びTransformersを用いて，空領域の自動抽出を行った．
+本研究ではTransformerベースのセマンティックセグメンテーションモデルであるSegFormerのファインチューニング済みプロダクトSegFormer(b0-finetuned-ade-512-512)を採用した．
+セマンティックセグメンテーションは画素の色情報だけでなく，周囲の形状や大域的な情報を考慮して物体認識を行う\cite{xie2021segformer}．
+これにより輝度値が類似している領域であっても，高精度な判別が可能である．
+本モデルにより，入力された各画像はピクセル単位でクラス分類が行われる．
+入力した画像に対して，モデルの定義に基づき，空クラスに該当する領域を空領域として抽出した．
+GSV画像と，空の判別を可視化した対応する画像を図\ref{fig:GSV}と図\ref{fig:segGSV}に示す．
+モデルの推論結果として得られたセグメンテーション画像を元の画像サイズにアップサンプリングし，各ピクセルの所属クラスを確定した．
+そのうえで画像内の全画素数に対する空クラスの画素数の割合を算出し，その地点・方向における天空率とした．
+本手法により，対象ルート上の全地点におけるSVFを算出し，解析に利用した．
+
+\begin{figure}[H]
+    \centering
+    %--- 左側の画像 ---
+    \begin{minipage}[t]{0.48\linewidth} % 幅を全体の48%に設定
+        \centering
+        \includegraphics[width=\linewidth]{20250902_35.87059852775_139.637428657985_270.jpg}
+        \caption{GSV画像}
+        \label{fig:GSV} % ラベルをユニークなものに変更
+    \end{minipage}
+    \hfill % 左右の間にスペースを自動で空ける
+    %--- 右側の画像 ---
+    \begin{minipage}[t]{0.48\linewidth} % 幅を全体の48%に設定
+        \centering
+        \includegraphics[width=\linewidth]{sky_blue_dark_result.jpg}
+        \caption{空を判別した画像(青:空，暗所:障害物)} 
+        \label{fig:segGSV} 
+    \end{minipage}
+\end{figure}
+
+
+
+\chapter{提案手法}
+\section{Random Forest}
+%\subsection{RandomForest}
+RFは多数の決定木を作成し，それらの予測結果を統合することで最終的な予測を行うアンサンブル学習アルゴリズムである．
+作成されたそれぞれの決定木は次のような特性がある．
+
+\begin{enumerate}
+    \item \textbf{学習データの選択}
+    
+    学習データをランダムに選択して，決定木ごとに異なるデータで学習させる．
+    これにより，外れ値による過学習を防ぐことができる．
+    \item \textbf{説明変数の選択}
+    
+    それぞれの決定木ではすべての説明変数を使うのではなく，ランダムに選ばれた一部の説明変数のみを使用する．
+    これにより，強力な一定の説明変数のみに依存することを防ぎ，すべての説明変数を考慮することが可能になる．
+\end{enumerate}
+
+都市域における地表面温度分布は，多様な要因が複合的に作用して決定される．
+これらの要因間の相互作用は非線形を示し，線形回帰モデルでは十分に表現することが困難である\cite{hutengs2016downscaling}．
+RFは非線形なデータの学習に優れていて，一部のデータに含まれるノイズや外れ値に対しても強いため，本研究で採用した．
+LST推定モデルの構築は，このRFを用いて行う．
+
+
+\section{LST推定モデル}
+本研究では，異なる説明変数を使用した三つのLST推定モデルを作成した．
+日影分布の有用性を検証するため，三つのLST推定モデルは，日影分布の考慮という点で異なる特性を持つ．
+それぞれのモデルについて以下に示す．
+
+\begin{itemize}
+    \item \textbf{モデル1}：
+
+    説明変数としてリモートセンシングLST，Sentinel-2のバンドデータとNDVI，SVFを使用した．
+    このモデルは日影についての情報を考慮していない．
+
+    \item \textbf{モデル2}：
+
+    説明変数としてリモートセンシングLST，Sentinel-2のバンドデータとNDVI，Shade，SVFを使用した．
+    このモデルは建物の日影についての情報は考慮しているが，植生の日影については考慮していない．
+
+
+    \item \textbf{モデル3}：
+
+    説明変数としてリモートセンシングLST,Sentinel-2のバンドデータとNDVI，SVF，Shade NDVIを使用した．
+    このモデルは建物と植生による日影についての情報を考慮している．
+    
+\end{itemize}
+
+使用した変数は以下のものである．
+
+\begin{itemize}
+    % \textsf を使うとゴシック体（サンセリフ）になり、本文（明朝体）と区別がつきます
+    \item \textsf{\textbf{目的変数}}：
+
+    \begin{itemize}
+        \item \textbf{地表面温度の現地実測値}：
+        
+        \ref{subsec:pointLST}で取得したデータ
+    \end{itemize}
+
+    \item \textsf{\textbf{説明変数}}：
+
+    \begin{itemize}
+        \item \textbf{リモートセンシングLST}：
+        
+        \ref{subsec:Ls_LST}でLandsat9から取得したデータ
+        \item \textbf{Sentinel-2バンドデータ}：
+        
+        \ref{subsec:Sen_band}でSentinel-2から取得したデータ
+        \item \textbf{Sentinel-2 NDVI}：
+        
+        \ref{subsec:Sen_band}でSentinel-2から取得したデータから算出
+        \item \textbf{Shade}
+
+        \ref{subsec:Shade}で取得した日影の有無を表したデータ
+        \item \textbf{SVF}
+
+        \ref{subsec:SVF}で算出したデータ
+        \item \textbf{Shade NDVI}
+
+        \ref{subsec:Shade}で取得したデータの改良版
+    \end{itemize}
+
+\end{itemize}
+
+\subsection{Sentinel-2 NDVI}
+説明変数として，植生による蒸散冷却効果でLSTと相関関係を持つと考えられる正規化植生指数(NDVI)を使用した\cite{kustas2003estimating}．
+NDVIの算出にはSentinel-2の赤バンド(Band4)と近赤外バンド(Band8)を使用した．
+それぞれの空間解像度は10mであり，算出されるNDVIも空間解像度は10mである．
+\ref{subsec:Sen_band}で取得した画像に対し，以下の式\ref{eq:ndvi}を用いてNDVIを算出した．
+\begin{equation}
+  \text{NDVI} = \frac{R_{\text{NIR}} - R_{\text{Red}}}{R_{\text{NIR}} + R_{\text{Red}}}
+  \label{eq:ndvi}
+\end{equation}
+ここで$R_{NIR}$はBand8の反射率，$R_{Red}$はBand4の反射率を示す．
+
+\subsection{Shade NDVI}
+説明変数として，建物と植生による日影の影響を考慮した値であるShade NDVIを使用した．
+日影の有無を表した値ShadeはShadeMapからとられているが，演算に使用される3Dモデルの関係で，植生による日影は考慮することができない．
+そのためShadeは街路空間の日影の影響を完全に説明しているとは言えない．
+$Shade NDVI$はShadeが説明する建物の日影分布に加え，植生の日陰分布も考慮している．
+任意のピクセルのShade NDVI, $I_{(i,j)}$は以下の式\ref{eq:shade_condition}を用いて算出される．
+
+\begin{equation}
+  I_{(i,j)} =
+  \begin{dcases}
+    1           & (\text{Shade} = 0\text{，日影}) \\
+    V_{(i,j+1)} & (\text{Shade} = 1\text{，日向})
+  \end{dcases}
+  \label{eq:shade_condition}
+\end{equation}
+
+ここで，$V_{(i,j+1)}$は任意のピクセルより一つ南のピクセルのNDVIを示す．
+
+\section{評価方法}
+
+\subsection{多重共線性の検証}
+RFは多重共線性に強い特性があるため，多重共線性の高い変数がある場合でも推定結果の精度には問題がない．
+しかし，後に記述する変数重要度の値には影響があるため，各説明変数の独立性を評価する必要がある．
+本研究では，その評価にVIFを用いた．
+VIFはある説明変数をほかのすべての説明変数で回帰分析した際の$R^2$を用いて以下の式\ref{eq:vif}で定義される．
+
+\begin{equation}
+  \text{VIF} = \frac{1}{1 - R^2}
+  \label{eq:vif}
+\end{equation}
+
+
+一般的に，VIFの値が10を超える場合，多重共線性の疑いがあると判断される．
+
+\subsection{評価指標}
+
+本研究では，提案モデルの予測精度を定量的に評価するために，以下の二つの指標を採用した．
+
+\begin{enumerate}
+    \item \textbf{二乗平均平方根誤差(RMSE)}
+    
+    RMSEは予測値と実測値の残差の二乗平均の平方根をとった値であり，以下の式\ref{eq:rmse}で定義される．
+    \begin{equation}
+      \text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^{n} (y_i - \hat{y}_i)^2}
+      \label{eq:rmse}
+    \end{equation}
+    ここで，$n$はデータ数，$y_i$は現地実測値，$\hat{y}_i$は予測値を表す．
+    \item \textbf{決定係数($R^2$)}
+    
+    $R^2$はモデルがどの程度を説明できているかを示す指標であり，以下の式\ref{eq:r_squared}で表される．
+    \begin{equation}
+      R^2 = 1 - \frac{\sum_{i=1}^{n} (y_i - \hat{y}_i)^2}{\sum_{i=1}^{n} (y_i - \bar{y})^2}
+      \label{eq:r_squared}
+    \end{equation}
+    ここで，$\bar{y}$は実測値の平均を表す．$R^2$の最大値は1であり，1に近いほどモデルの精度が高い．
+\end{enumerate}
+
+\subsection{検証手順}
+データセットの全184点をトレーニングデータとテストデータ(8:2)に分割し，モデルの精度を評価した．
+再現性を確保するため，分割の際は乱数シードを42に固定した．
+また，説明変数が推定結果に与える影響を示す変数重要度を算出した．
+ランダムフォレストの変数重要度は，説明変数間の相関が強いと希釈される\cite{gregorutti2017correlation}．
+このことは，真に重要な変数が過小評価される可能性を生んでしまう．
+そのため，VIFを用いて以下の手順で変数の選択を行ってから変数重要度の算出をした．
+\begin{enumerate}
+  \item 説明変数セットに含まれるすべての変数について VIF を算出する．
+  \item 算出されたVIFの最大値を持つ変数を特定する．
+  その変数のVIFが事前に設定した閾値を超える場合，その変数を説明変数セットから除外する．
+  一般的に多重共線性の懸念が高いとされる基準に従い，閾値を10.0に設定した．
+  \item すべての変数のVIFが閾値を下回るまで，1から2を繰り返す。
+\end{enumerate}
+これにより，より純粋な変数重要度を確認することが出来る．
+RFの特性で，多重共線性はモデルの推定精度に与える影響が少ないため，変数の除外は変数重要度を求める時だけ行うものとした．
+
+
+\section{LST推定マップの作成}
+提案手法が，詳細なスケールでのLSTの分布を表現できることを確認するために，構築したモデルを使用して，2025年9月2日の研究対象地域に適用し，LSTの推定を行った．
+推定する地点は，埼大通りの両側の歩道に一定間隔で全410点置いた．
+LST推定の際に使用するデータとして，2025年9月2日のLandsat画像と，2025年9月8日のSentinel-2画像を取得した．
+推定する地点のGSV画像を取得し，天空率を算出した．
+ShadeMapから9月2日の日陰分布を取得した．
+
+\chapter{結果}
+\section{VIF算出結果}
+各説明変数の独立性を確認するため，変数間の相関係数とVIFの算出を行った．
+特に本研究独自の説明変数であるShadeとShade NDVIとほかの説明変数の間に強い共線性がないかを確認することは重要である．
+検証の結果，変数間に大きい相関がみられたのは[B2, B3, B4],[B11, B12]などのSentinel-2バンド間だけであった．
+その他の変数間には相関がみられなかった(図\ref{fig:model1VIF}, 図\ref{fig:model2VIF}, 図\ref{fig:model3VIF})．
+VIFが10を超える高い値を示したのは，B2,B3,B4,B6,B7,B8A,B11,B12といったSentinel-2の一部のバンドのみであった(表\ref{tab:model1vif_result},表\ref{tab:model2vif_result},表\ref{tab:model3vif_result})．
+さらにLandsatLST，Shade，SVF，Shade NDVIのVIFはいずれも1.0程度の低い値にとどまり，統計的に独立している説明変数であることが確認できた．
+
+
+\begin{figure}[H]
+    \centering
+        \includegraphics[width=0.7\linewidth]{model1_correlation_matrix.png}
+        \caption{モデル1の変数間の相関係数}
+        \label{fig:model1VIF}
+\end{figure}
+\begin{figure}[H]
+    \centering
+        \includegraphics[width=0.7\linewidth]{model2_correlation_matrix.png}
+        \caption{モデル2の変数間の相関係数}
+        \label{fig:model2VIF}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\linewidth]{model3_correlation_matrix.png}
+    \caption{モデル3の変数間の相関係数}
+    \label{fig:model3VIF}
+\end{figure}
+
+
+\begin{table}[H]
+    \centering
+    
+    % --- 1つ目の表 ---
+    \begin{minipage}[t]{0.32\linewidth}
+        \centering
+        \caption{モデル1のVIF}
+        \label{tab:model1vif_result}
+        \begin{tabular}{lc}
+            \toprule
+            変数名 & VIF \\
+            \midrule
+            LandsatLST & 1.07 \\
+            NDVI & 3.68 \\
+            SVF & 1.35 \\
+            B2 & 14.26 \\
+            B3 & 20.28 \\
+            B4 & 21.92 \\
+            B5 & 5.92 \\
+            B6 & 13.19 \\
+            B7 & 15.53 \\
+            B8 & 7.44 \\
+            B8A & 22.09 \\
+            B11 & 19.83 \\
+            B12 & 11.32 \\
+            \bottomrule
+        \end{tabular}
+    \end{minipage}
+    \hfill
+    % --- 2つ目の表 ---
+    \begin{minipage}[t]{0.32\linewidth}
+        \centering
+        \caption{モデル2のVIF}
+        \label{tab:model2vif_result}
+        \begin{tabular}{lc}
+            \toprule
+            変数名  & VIF \\
+            \midrule
+            LandsatLST & 1.07 \\
+            NDVI & 3.78 \\
+            Shade & 1.36 \\
+            SVF & 1.36 \\
+            B2 & 14.75 \\
+            B3 & 20.57 \\
+            B4 & 22.47 \\
+            B5 & 5.93 \\
+            B6 & 13.21 \\
+            B7 & 15.60 \\
+            B8 & 7.45 \\
+            B8A & 22.17 \\
+            B11 & 19.85 \\
+            B12 & 11.36 \\
+            \bottomrule
+        \end{tabular}
+    \end{minipage}
+    \hfill
+    % --- 3つ目の表 ---
+    \begin{minipage}[t]{0.32\linewidth}
+        \centering
+        \caption{モデル3のVIF}
+        \label{tab:model3vif_result}
+        \begin{tabular}{lc}
+            \toprule
+            変数名 (Feature) & VIF \\
+            \midrule
+            LandsatLST & 1.07 \\
+            NDVI & 3.72 \\
+            Shade NDVI & 1.48 \\
+            SVF & 1.36 \\
+            B2 & 15.20 \\
+            B3 & 20.73 \\
+            B4 & 22.31 \\
+            B5 & 5.94 \\
+            B6 & 13.19 \\
+            B7 & 15.56 \\
+            B8 & 7.49 \\
+            B8A & 22.09 \\
+            B11 & 19.89 \\
+            B12 & 11.45 \\
+            \bottomrule
+        \end{tabular}
+    \end{minipage}
+\end{table}
+
+\section{モデル精度}
+それぞれのモデルについて，RFによる学習及びテストデータによる評価を行った．
+それぞれのモデルによって予測された値と実測値の散布図を図\ref{fig:model1VS},\ref{fig:model2VS},\ref{fig:model3VS}に示す．
+また，各モデルの評価結果(RMSEと$R^2$)を表\ref{tab:model_comparison}に示す．
+結果として，モデル3が最も高い推定精度を持っている．
+ベースのモデル1と比較すると，モデル2とモデル3の$R^2$は大幅に向上していることが確認できる．
+このことは日影分布がLSTダウンスケーリングの説明変数として効果的であることを示している．
+また，モデル3はモデル2と比較しても精度が向上している．
+これにより，Shade NDVIはShadeよりも説明変数として有用であることが推察される．
+Landsatの$R^2$は$-0.1775$であり，現行のLandsat解像度では，街路空間のLST分布を表現することは不可能であることを示している．
+
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{landsat_vs_actual_colored_date.png}
+    \caption{Landsatと実測値の散布図}
+    \label{fig:VS}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{model1_combined_1_actual_vs_pred_colored_date.png}
+    \caption{モデル1と実測値の散布図}
+    \label{fig:model1VS}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{model2_combined_1_actual_vs_pred_colored_date.png}
+    \caption{モデル2と実測値の散布図}
+    \label{fig:model2VS}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\linewidth]{model3_combined_1_actual_vs_pred_colored_date.png}
+    \caption{モデル3と実測値の散布図}
+    \label{fig:model3VS}
+\end{figure}
+
+
+
+\begin{table}[H]
+    \centering
+    \caption{精度の比較結果}
+    \label{tab:model_comparison}
+    \begin{tabular}{lcc}
+        \toprule
+        モデル & RMSE [$^\circ$C] & 決定係数 ($R^2$) \\
+        \midrule
+        Landsat & 10.1825 & -0.1775 \\
+        モデル1 & 5.9907 & 0.6364 \\
+        モデル2 & 5.3652 & 0.7084 \\
+        モデル3 & \textbf{5.2717} & \textbf{0.7184}  \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+\section{変数重要度}
+それぞれの説明変数が推定精度に与える影響を評価するために，各モデルにおける変数重要度を以下の図\ref{fig:model1_im}～\ref{fig:model3_im}に示す．
+どのモデルでもLandsatLSTが支配的な寄与を示し，LSTの広域的な傾向を決定づけていることが分かった．
+しかし，モデル3においてはShade NDVIがLandsatLSTに次ぐ重要度を有し，他の変数と比べて推定結果への寄与がかなり大きい．
+モデル2のShadeはB2よりも小さい重要度を有することから，植生の日影を考慮することが有意であることが分かった．
+
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{model1_combined_2_feature_importance_no_sunshade.png}
+    \caption{モデル1における変数重要度}
+    \label{fig:model1_im}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{model2_combined_2_feature_importance.png}
+    \caption{モデル2における変数重要度}
+    \label{fig:model2_im}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{model3_combined_2_feature_importance.png}
+    \caption{モデル3における変数重要度}
+    \label{fig:model3_im}
+\end{figure}
+
+
+\section{地表面温度マッピング}
+モデル3を使用して，研究対象地域に一定間隔で置かれた地点に対して地表面温度の推定を行い，詳細な温度分布を作成した．
+図\ref{fig:west},\ref{fig:east}に推定結果を示す．
+また，図\ref{fig:westLand},\ref{fig:eastLand}に，その地点のLandsatLSTを反映した地表面温度分布を示す．
+推定LST分布の，道路に沿って隣接するポイントを見ると，LSTが大きく異なる場所があることがわかる．
+また，道路の北側と南側でLSTが大きく異なる場所があることがわかる．
+LandsatLST分布は，ほとんどの地点で同じようなLSTを示し，局所的なLSTの違いが見られない．
+これは構築モデルが詳細なスケールでのLSTの分布を表現できていて，都市部における複雑な温度変化に対応したLST推定が可能であることを示している．
+また，研究対象地域西側の大通り付近には，図\ref{fig:rojasu}のように大型スーパーがある．
+大型スーパーの北側のLSTが低いことから，構築モデルは日影の影響を考慮できていることが分かる．
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{map_1_west_voyager_no_title.png}
+    \caption{研究対象地域西側の推定地表面温度分布}
+    \label{fig:west}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{map_3_west_landsat_orig_no_title.png}
+    \caption{研究対象地域西側のLandsat地表面温度分布}
+    \label{fig:westLand}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{map_2_east_voyager_no_title.png}
+    \caption{研究対象地域東側の推定地表面温度分布}
+    \label{fig:east}
+\end{figure}
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{map_4_east_landsat_orig_no_title.png}
+    \caption{研究対象地域東側のLandsat地表面温度分布}
+    \label{fig:eastLand}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\linewidth]{super.png}
+    \caption{大型スーパー(赤枠線の四角)付近のLST分布}
+    \label{fig:super}
+\end{figure}
+
+\chapter{考察}
+本研究を通して，提案したモデルは街路空間でのLST分布を表現できることを示した．
+本研究で提案した変数Shade NDVIを利用したモデル3は，LandsatLSTデータよりも空間的に詳細なスケールでLSTを推定することができた．
+
+\section{日影の影響と重要性}
+本研究では，独自の説明変数としてShade NDVIを提案した．
+作成した3つのモデルを比較した結果，Shade NDVIを利用したモデル3が一番高い精度を示した．
+また，日影を考慮したモデル2,3と，日影を考慮していないモデル1の間では予測精度に大きな差があった．
+このことから，ダウンスケーリングにおいて日影分布を利用することは有効なアプローチであると考えられる．
+また，モデル2よりもモデル3の精度が高いことから，Shade NDVIは説明変数Shadeよりも植生の日影分布を説明できていると考えられる．
+しかし，日影分布を取得するうえで，街路樹などの細かい植生の3Dデータを使用していない以上，完璧に植生による日影を把握できているとは言えない．
+そのような3Dデータを取得することができれば，さらなる精度向上が見込めるだろう．
+
+
+\section{実測値と予測値の比較}
+図\ref{fig:VS}～\ref{fig:model3VS}を見ると，どのモデルでも9月26日の予測値が実測値と大きく外れていることがわかる．
+9月26日のさいたま市は，最高気温が32.1℃であった．
+気象庁の定義では，最高気温が30℃以上の日は真夏日とされるため，9月26日のさいたま市は真夏日であった\cite{JMA_weather_data}．
+LSTダウンスケーリングは，ほかの季節に比べ，夏に精度が下がることが知られている\cite{govil2019seasonal,weng2004estimation}．
+このことから，秋に比べ夏のほうが詳細なLST分布を推定することが困難であると考えられる．
+ほかの日付では大きな外れ値も少ないので，秋はうまく推定できていると考えられる．
+夏は，本研究で使用した説明変数では十分にLSTの推定ができていないので，ほかの新たな説明変数を追加することで，さらなるモデルの精度向上が見込める．
+
+
+\chapter{おわりに}
+ \section{まとめ}
+ 本研究では，機械学習アルゴリズムの一つであるRandomForestを用いたLSTダウンスケーリングモデルを構築した．
+ モデルの説明変数として，一般的なLSTダウンスケーリングの研究に用いられるものに加えて，詳細な日影分布を考慮したShade NDVIを使用した．
+ 日影を考慮したRFモデルは，その他のモデルに比べてより優れた精度を示し，人間スケールへのLSTダウンスケーリングにおける日影分布の考慮の有用性を示した．
+ また，構築したモデルによって作成されたLST分布は，リモートセンシングによって取得されたLST分布よりも微細なLST分布であることが確認された．
+ 本研究で提案したモデルを使ってLST推定を行うことにより，街路空間の微細なLST分布を把握することが可能になり，人間の熱曝露評価に役立つと考えられる．
+
+ \section{今後の課題}
+ 今後は，夏季のLST分布を説明することができる変数追加，植生の日影をより正確に考慮するための3Dモデルの取得を行うことでモデルの精度が向上すると考えられる．
+ また，本研究では9月26日を含めた夏季～秋季の3日間のみの検証となったが，一年間を通しての検証がまだ行えていない．
+ さらに，使用した現地撮影の熱画像も全部で184枚とサンプル数としては少ない．
+ 今後はほかの季節におけるデータを拡充することで，時期を問わず適用可能な汎用性の確保と，さらなる推定精度の向上が期待される．
+
+
+\newpage
+
+% 参考文献：bibtexを使う場合
+%
+\bibliographystyle{unsrt} % bstファイル名
+\bibliography{ref} % bibファイル名
+
+
+
+% % 付録
+% \appendix % 以下，付録
+% \chapter{▽△▽△}
+% \section{ほげほげ}
+% \section{ほりゃほりゃ}
+% \chapter{▽△▽△}
+% \section{ほげほげ}
+% \section{ほりゃほりゃ}
+
+% 索引． mendexかmkindexで作成
+\printindex
+
+%目次にIndexを表示させる場合はmendexかmkindex実行後に作成される
+% hogehoge.idmファイルのtheindex環境の中で下記命令を置く
+%\addcontentsline{toc}{chapter}{Index}
+
+\end{document}
